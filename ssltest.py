@@ -9,6 +9,8 @@
 # Usage example: python ssltest.py top-1m.csv 10
 
 import sys
+import threading
+from Queue import Queue
 import struct
 import socket
 import time
@@ -57,7 +59,7 @@ def recvall(s, length, timeout=5):
     rdata = ''
     remain = length
     while remain > 0:
-        rtime = endtime - time.time() 
+        rtime = endtime - time.time()
         if rtime < 0:
             return None
         r, w, e = select.select([s], [], [], 5)
@@ -72,7 +74,7 @@ def recvall(s, length, timeout=5):
             rdata += data
             remain -= len(data)
     return rdata
-        
+
 
 def recvmsg(s):
     hdr = recvall(s, 5)
@@ -139,40 +141,60 @@ def is_vulnerable(domain):
     s.send(hb)
     return hit_hb(s)
 
+class ThreadTest(threading.Thread):
+    def __init__(self, queue):
+        threading.Thread.__init__(self)
+        self.queue = queue
+        
+    def run(self):
+        assert isinstance(self.queue, Queue)
+
+        while not self.queue.empty():
+            domain = self.queue.get()
+            message = str("Testing " + str(domain) + "... ")
+            result = is_vulnerable(domain);
+            if result is None:
+                message += "no SSL."
+            elif result:
+                message += "vulnerable."
+            else:
+                message += "not vulnerable."
+            print message
+
+
 def main():
     opts, args = options.parse_args()
     if len(args) < 2:
         options.print_help()
         return
 
-    counter_nossl = 0;
-    counter_notvuln = 0;
-    counter_vuln = 0;
+    #counter_nossl = 0;
+    #counter_notvuln = 0;
+    #counter_vuln = 0;
+
+    q = Queue()
 
     f = open(args[0], 'r')
     for line in f:
         rank, domain = line.split(',')
         domain = domain.strip()
-        print "Testing " + domain + "... ",
         sys.stdout.flush();
-        result = is_vulnerable(domain);
-        if result is None:
-            print "no SSL."
-            counter_nossl += 1;
-        elif result:
-            print "vulnerable."
-            counter_vuln += 1;
-        else:
-            print "not vulnerable."
-            counter_notvuln += 1;
+        q.put(domain)
 
         if int(rank) >= int(args[1]):
             break
 
-    print
-    print "No SSL: " + str(counter_nossl)
-    print "Vulnerable: " + str(counter_vuln)
-    print "Not vulnerable: " + str(counter_notvuln)
+    threads = []
+    for i in range(10):
+        threads.append(ThreadTest(q).start())
+
+    #for i in threads:
+        #i.join()
+
+    #print
+    #print "No SSL: " + str(counter_nossl)
+    #print "Vulnerable: " + str(counter_vuln)
+    #print "Not vulnerable: " + str(counter_notvuln)
 
 if __name__ == '__main__':
     main()
